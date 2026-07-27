@@ -17,6 +17,8 @@ function sendJson($status, $data = []) {
 }
 
 function ensureStorageDirectories($targetDir) {
+    @umask(0);
+
     $dirs = [
         $targetDir . '/storage',
         $targetDir . '/storage/app',
@@ -38,6 +40,23 @@ function ensureStorageDirectories($targetDir) {
         @chmod($d, 0777);
         @file_put_contents($d . '/.gitkeep', '');
     }
+
+    // Fix permissions for all existing files in storage/framework/views/
+    $viewsDir = $targetDir . '/storage/framework/views';
+    if (is_dir($viewsDir)) {
+        $files = glob($viewsDir . '/*');
+        if ($files) {
+            foreach ($files as $f) {
+                @chmod($f, 0777);
+            }
+        }
+    }
+
+    // Wipe stale development framework cache files from bootstrap/cache/
+    @unlink($targetDir . '/bootstrap/cache/config.php');
+    @unlink($targetDir . '/bootstrap/cache/routes.php');
+    @unlink($targetDir . '/bootstrap/cache/services.php');
+    @unlink($targetDir . '/bootstrap/cache/packages.php');
 }
 
 switch ($action) {
