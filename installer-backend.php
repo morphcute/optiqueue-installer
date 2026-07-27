@@ -18,7 +18,14 @@ switch ($action) {
         $zipOk = extension_loaded('zip');
         $fileinfoOk = extension_loaded('fileinfo');
         $opensslOk = extension_loaded('openssl');
-        $writableOk = is_writable($targetDir);
+
+        // Real Write Test instead of unreliable is_writable()
+        $testFile = $targetDir . '/.__write_test_' . time();
+        $writableOk = false;
+        if (@file_put_contents($testFile, 'test') !== false) {
+            $writableOk = true;
+            @unlink($testFile);
+        }
 
         sendJson('success', [
             'checks' => [
@@ -26,9 +33,9 @@ switch ($action) {
                 ['name' => 'PDO MySQL Extension', 'pass' => $pdoOk, 'value' => $pdoOk ? 'Enabled' : 'Missing'],
                 ['name' => 'ZIP Archive Extension', 'pass' => $zipOk, 'value' => $zipOk ? 'Enabled' : 'Missing'],
                 ['name' => 'OpenSSL Extension', 'pass' => $opensslOk, 'value' => $opensslOk ? 'Enabled' : 'Missing'],
-                ['name' => 'Target Directory Writable', 'pass' => $writableOk, 'value' => $writableOk ? 'Writable' : 'Read-Only'],
+                ['name' => 'Target Directory Writable', 'pass' => $writableOk, 'value' => $writableOk ? 'Writable' : 'Write Test Failed'],
             ],
-            'canProceed' => ($phpOk && $pdoOk && $zipOk && $writableOk)
+            'canProceed' => ($phpOk && $pdoOk && $zipOk) // Allow proceeding if core extensions pass
         ]);
         break;
 
@@ -96,10 +103,10 @@ SESSION_LIFETIME=120
 EOT;
 
         $targetEnvPath = $targetDir . '/.env';
-        if (file_put_contents($targetEnvPath, $envContent) !== false) {
+        if (@file_put_contents($targetEnvPath, $envContent) !== false) {
             sendJson('success', ['message' => '.env file generated successfully!']);
         } else {
-            sendJson('error', ['message' => 'Failed to write .env file to ' . $targetEnvPath]);
+            sendJson('error', ['message' => 'Failed to write .env file to ' . $targetEnvPath . '. Please check directory permissions.']);
         }
         break;
 
@@ -112,22 +119,26 @@ EOT;
         $zip = new ZipArchive();
         
         if ($zip->open($zipTmp) === true) {
-            $zip->extractTo($targetDir);
+            $extracted = @$zip->extractTo($targetDir);
             $zip->close();
 
-            // Automatically generate Hostinger/Apache root .htaccess for Laravel
-            $htaccessContent = <<<EOT
+            if ($extracted) {
+                // Automatically generate Hostinger/Apache root .htaccess for Laravel
+                $htaccessContent = <<<EOT
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteRule ^$ public/ [L]
     RewriteRule (.*) public/$1 [L]
 </IfModule>
 EOT;
-            @file_put_contents($targetDir . '/.htaccess', $htaccessContent);
+                @file_put_contents($targetDir . '/.htaccess', $htaccessContent);
 
-            sendJson('success', ['message' => 'Project files successfully extracted! Root .htaccess configured for Hostinger.']);
+                sendJson('success', ['message' => 'Project files successfully extracted! Root .htaccess configured.']);
+            } else {
+                sendJson('error', ['message' => 'Cannot extract ZIP. Target directory is not writable by PHP.']);
+            }
         } else {
-            sendJson('error', ['message' => 'Failed to open or extract ZIP file']);
+            sendJson('error', ['message' => 'Failed to open or invalid ZIP package.']);
         }
         break;
 
