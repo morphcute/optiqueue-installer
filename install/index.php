@@ -13,6 +13,12 @@
     <div class="glow-2"></div>
 
     <div class="installer-card">
+        <!-- Loading Overlay -->
+        <div id="loading-overlay" class="loading-overlay">
+            <div class="spinner"></div>
+            <div id="loading-text">Processing...</div>
+        </div>
+
         <!-- Header -->
         <div class="header">
             <div class="logo">
@@ -113,20 +119,26 @@
             </div>
         </div>
 
-        <!-- STEP 3: Upload Project ZIP -->
+        <!-- STEP 3: Upload / Select Project ZIP -->
         <div class="step-content" id="step-3">
-            <h3 style="margin-bottom: 12px; font-size: 16px;">3. Select & Extract OptiQueue Project ZIP</h3>
+            <h3 style="margin-bottom: 12px; font-size: 16px;">3. Select & Extract OptiQueue Release Package</h3>
             <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">
-                Select the <code style="color: var(--primary);">optiqueue-v1.2.0.zip</code> release file to extract code files into the application directory.
+                Select a release ZIP package detected on your server or upload a new release ZIP.
             </p>
 
-            <div class="form-group">
-                <label>Upload Project ZIP File</label>
+            <!-- Detected Server ZIPs -->
+            <div class="form-group" id="detected-zip-container" style="display: none;">
+                <label style="color: #6EE7B7;">Detected Server Release ZIP Package</label>
+                <select id="local_zip_select" class="form-control"></select>
+            </div>
+
+            <div class="form-group" id="upload-zip-container">
+                <label id="upload-label">Upload Release ZIP File</label>
                 <input type="file" id="zip_file" accept=".zip" class="form-control">
             </div>
 
             <div class="log-box" id="extract-log">
-                Ready to extract package...
+                Ready to process release package...
             </div>
 
             <div class="btn-row">
@@ -187,6 +199,15 @@
     <script>
         let currentStep = 1;
 
+        function showLoading(text = 'Processing...') {
+            document.getElementById('loading-text').innerText = text;
+            document.getElementById('loading-overlay').classList.add('active');
+        }
+
+        function hideLoading() {
+            document.getElementById('loading-overlay').classList.remove('active');
+        }
+
         function showAlert(msg, isSuccess = false) {
             const box = document.getElementById('alert-box');
             box.className = 'alert ' + (isSuccess ? 'alert-success' : 'alert-danger');
@@ -213,10 +234,40 @@
             }
 
             currentStep = step;
+            if (step === 3) fetchServerZips();
+        }
+
+        async function fetchServerZips() {
+            try {
+                const res = await fetch('installer-backend.php?action=list_zips');
+                const data = await res.json();
+
+                const select = document.getElementById('local_zip_select');
+                const container = document.getElementById('detected-zip-container');
+                const uploadLabel = document.getElementById('upload-label');
+
+                if (data.zips && data.zips.length > 0) {
+                    select.innerHTML = '<option value="">-- Select Server ZIP Package --</option>';
+                    data.zips.forEach(z => {
+                        const opt = document.createElement('option');
+                        opt.value = z.filename;
+                        opt.innerText = `${z.filename} (${z.size})`;
+                        select.appendChild(opt);
+                    });
+                    container.style.display = 'block';
+                    uploadLabel.innerText = 'Or Upload Different ZIP File';
+                } else {
+                    container.style.display = 'none';
+                    uploadLabel.innerText = 'Upload Release ZIP File';
+                }
+            } catch (e) {
+                console.log('No server zip check');
+            }
         }
 
         // Run System Checks on Load
         async function runSystemChecks() {
+            showLoading('Checking system requirements...');
             try {
                 const res = await fetch('installer-backend.php?action=check_env');
                 const data = await res.json();
@@ -245,14 +296,14 @@
                 }
             } catch (e) {
                 showAlert('Failed to connect to installer backend script.');
+            } finally {
+                hideLoading();
             }
         }
 
         async function testDatabase() {
             clearAlert();
-            const btn = document.getElementById('btn-test-db');
-            btn.disabled = true;
-            btn.innerText = 'Connecting...';
+            showLoading('Testing database connection & writing .env...');
 
             const payload = new FormData();
             payload.append('action', 'test_db');
@@ -282,28 +333,32 @@
             } catch (e) {
                 showAlert('Network error during database test.');
             } finally {
-                btn.disabled = false;
-                btn.innerText = 'Test Connection & Save .env';
+                hideLoading();
             }
         }
 
         async function extractZip() {
             clearAlert();
+            const localZip = document.getElementById('local_zip_select').value;
             const fileInput = document.getElementById('zip_file');
             const logBox = document.getElementById('extract-log');
 
-            if (!fileInput.files.length) {
-                showAlert('Please select a project .ZIP file first.');
+            if (!localZip && !fileInput.files.length) {
+                showAlert('Please select a server ZIP package or upload a .ZIP file.');
                 return;
             }
 
-            const btn = document.getElementById('btn-extract-zip');
-            btn.disabled = true;
+            showLoading('Extracting project files... Please wait...');
             logBox.innerText = 'Extracting project files... Please wait...';
 
             const payload = new FormData();
             payload.append('action', 'extract_zip');
-            payload.append('zip_file', fileInput.files[0]);
+
+            if (localZip) {
+                payload.append('local_zip_name', localZip);
+            } else if (fileInput.files.length) {
+                payload.append('zip_file', fileInput.files[0]);
+            }
 
             try {
                 const res = await fetch('installer-backend.php', { method: 'POST', body: payload });
@@ -318,12 +373,14 @@
             } catch (e) {
                 showAlert('Failed to extract ZIP package.');
             } finally {
-                btn.disabled = false;
+                hideLoading();
             }
         }
 
         async function createAdmin() {
             clearAlert();
+            showLoading('Running migrations & creating administrator account...');
+
             const payload = new FormData();
             payload.append('action', 'create_admin');
             payload.append('admin_name', document.getElementById('admin_name').value);
@@ -355,6 +412,8 @@
                 }
             } catch (e) {
                 showAlert('Error creating administrator user.');
+            } finally {
+                hideLoading();
             }
         }
 

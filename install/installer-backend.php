@@ -118,15 +118,57 @@ EOT;
         }
         break;
 
-    case 'extract_zip':
-        if (empty($_FILES['zip_file']['tmp_name'])) {
-            sendJson('error', ['message' => 'No ZIP file uploaded']);
+    case 'list_zips':
+        $zips = [];
+        $dirsToScan = [$targetDir, __DIR__, $targetDir . '/dist_installer'];
+
+        foreach ($dirsToScan as $dir) {
+            if (is_dir($dir)) {
+                $found = glob($dir . '/*.zip');
+                if ($found) {
+                    foreach ($found as $filePath) {
+                        $filename = basename($filePath);
+                        if (!isset($zips[$filename])) {
+                            $zips[$filename] = [
+                                'filename' => $filename,
+                                'path' => $filePath,
+                                'size' => round(filesize($filePath) / (1024 * 1024), 2) . ' MB'
+                            ];
+                        }
+                    }
+                }
+            }
         }
 
-        $zipTmp = $_FILES['zip_file']['tmp_name'];
+        sendJson('success', ['zips' => array_values($zips)]);
+        break;
+
+    case 'extract_zip':
+        $zipFilePath = null;
+
+        // Check if local ZIP is selected
+        if (!empty($_POST['local_zip_name'])) {
+            $localName = basename($_POST['local_zip_name']);
+            $dirsToScan = [$targetDir . '/' . $localName, __DIR__ . '/' . $localName, $targetDir . '/dist_installer/' . $localName];
+            foreach ($dirsToScan as $p) {
+                if (file_exists($p)) {
+                    $zipFilePath = $p;
+                    break;
+                }
+            }
+        }
+
+        // Fallback to uploaded ZIP file if no local file selected
+        if (!$zipFilePath && !empty($_FILES['zip_file']['tmp_name'])) {
+            $zipFilePath = $_FILES['zip_file']['tmp_name'];
+        }
+
+        if (!$zipFilePath) {
+            sendJson('error', ['message' => 'No ZIP package selected or uploaded']);
+        }
+
         $zip = new ZipArchive();
-        
-        if ($zip->open($zipTmp) === true) {
+        if ($zip->open($zipFilePath) === true) {
             $extracted = @$zip->extractTo($targetDir);
             $zip->close();
 
