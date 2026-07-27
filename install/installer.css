@@ -375,3 +375,39 @@ body {
     color: var(--text-main);
     letter-spacing: 0.3px;
 }
+
+/* Percentage Progress Bar Styling */
+.progress-container {
+    width: 80%;
+    max-width: 380px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.progress-track {
+    width: 100%;
+    height: 10px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #3B82F6, #10B981);
+    border-radius: 10px;
+    transition: width 0.2s ease;
+    box-shadow: 0 0 12px rgba(59, 130, 246, 0.5);
+}
+
+.progress-percentage {
+    font-size: 18px;
+    font-weight: 700;
+    color: #6EE7B7;
+    font-family: 'Fira Code', monospace;
+}

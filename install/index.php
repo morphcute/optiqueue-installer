@@ -13,10 +13,17 @@
     <div class="glow-2"></div>
 
     <div class="installer-card">
-        <!-- Loading Overlay -->
+        <!-- Loading Overlay with Percentage Bar -->
         <div id="loading-overlay" class="loading-overlay">
             <div class="spinner"></div>
             <div id="loading-text">Processing...</div>
+            
+            <div class="progress-container">
+                <div class="progress-track">
+                    <div id="progress-fill" class="progress-fill"></div>
+                </div>
+                <div id="progress-percentage" class="progress-percentage">0%</div>
+            </div>
         </div>
 
         <!-- Header -->
@@ -199,9 +206,21 @@
     <script>
         let currentStep = 1;
 
-        function showLoading(text = 'Processing...') {
+        function showLoading(text = 'Processing...', percent = 0) {
             document.getElementById('loading-text').innerText = text;
+            updateProgress(percent);
             document.getElementById('loading-overlay').classList.add('active');
+        }
+
+        function updateProgress(percent, text = null) {
+            const fill = document.getElementById('progress-fill');
+            const percentTxt = document.getElementById('progress-percentage');
+            const statusTxt = document.getElementById('loading-text');
+
+            const clamped = Math.min(100, Math.max(0, Math.round(percent)));
+            fill.style.width = clamped + '%';
+            percentTxt.innerText = clamped + '%';
+            if (text) statusTxt.innerText = text;
         }
 
         function hideLoading() {
@@ -267,8 +286,9 @@
 
         // Run System Checks on Load
         async function runSystemChecks() {
-            showLoading('Checking system requirements...');
+            showLoading('Checking system requirements...', 20);
             try {
+                updateProgress(50, 'Evaluating PHP extensions & permissions...');
                 const res = await fetch('installer-backend.php?action=check_env');
                 const data = await res.json();
                 
@@ -289,6 +309,7 @@
                     });
                 }
 
+                updateProgress(100, 'System checks complete!');
                 if (data.canProceed) {
                     document.getElementById('btn-step-1-next').disabled = false;
                 } else {
@@ -297,13 +318,13 @@
             } catch (e) {
                 showAlert('Failed to connect to installer backend script.');
             } finally {
-                hideLoading();
+                setTimeout(hideLoading, 500);
             }
         }
 
         async function testDatabase() {
             clearAlert();
-            showLoading('Testing database connection & writing .env...');
+            showLoading('Testing database connection...', 25);
 
             const payload = new FormData();
             payload.append('action', 'test_db');
@@ -314,10 +335,12 @@
             payload.append('db_pass', document.getElementById('db_pass').value);
 
             try {
+                updateProgress(50, 'Verifying MySQL credentials...');
                 const res = await fetch('installer-backend.php', { method: 'POST', body: payload });
                 const data = await res.json();
 
                 if (data.status === 'success') {
+                    updateProgress(75, 'Generating .env configuration file...');
                     // Write .env
                     payload.set('action', 'write_env');
                     payload.append('app_url', document.getElementById('app_url').value);
@@ -325,6 +348,7 @@
                     const envRes = await fetch('installer-backend.php', { method: 'POST', body: payload });
                     const envData = await envRes.json();
 
+                    updateProgress(100, 'Database configured successfully!');
                     showAlert(envData.message || 'Database configured successfully!', true);
                     setTimeout(() => goToStep(3), 1000);
                 } else {
@@ -333,11 +357,11 @@
             } catch (e) {
                 showAlert('Network error during database test.');
             } finally {
-                hideLoading();
+                setTimeout(hideLoading, 500);
             }
         }
 
-        async function extractZip() {
+        function extractZip() {
             clearAlert();
             const localZip = document.getElementById('local_zip_select').value;
             const fileInput = document.getElementById('zip_file');
@@ -348,7 +372,7 @@
                 return;
             }
 
-            showLoading('Extracting project files... Please wait...');
+            showLoading('Preparing ZIP extraction...', 5);
             logBox.innerText = 'Extracting project files... Please wait...';
 
             const payload = new FormData();
@@ -360,26 +384,46 @@
                 payload.append('zip_file', fileInput.files[0]);
             }
 
-            try {
-                const res = await fetch('installer-backend.php', { method: 'POST', body: payload });
-                const data = await res.json();
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', 'installer-backend.php', true);
 
-                if (data.status === 'success') {
-                    logBox.innerText += '\nExtracted successfully! Proceeding to Admin Setup...';
-                    setTimeout(() => goToStep(4), 1000);
-                } else {
-                    showAlert(data.message || 'ZIP Extraction failed.');
+            // Upload progress tracking (0% to 50%)
+            xhr.upload.onprogress = function(e) {
+                if (e.lengthComputable) {
+                    const percent = Math.round((e.loaded / e.total) * 50);
+                    updateProgress(percent, `Uploading package... ${percent * 2}%`);
                 }
-            } catch (e) {
-                showAlert('Failed to extract ZIP package.');
-            } finally {
+            };
+
+            xhr.onload = function() {
+                updateProgress(80, 'Extracting files onto server disk...');
+                try {
+                    const data = JSON.parse(xhr.responseText);
+                    if (data.status === 'success') {
+                        updateProgress(100, 'Extraction complete!');
+                        logBox.innerText += '\nExtracted successfully! Proceeding to Admin Setup...';
+                        setTimeout(() => goToStep(4), 1000);
+                    } else {
+                        showAlert(data.message || 'ZIP Extraction failed.');
+                    }
+                } catch (e) {
+                    showAlert('Failed to process ZIP package.');
+                } finally {
+                    setTimeout(hideLoading, 500);
+                }
+            };
+
+            xhr.onerror = function() {
+                showAlert('Network error during extraction.');
                 hideLoading();
-            }
+            };
+
+            xhr.send(payload);
         }
 
         async function createAdmin() {
             clearAlert();
-            showLoading('Running migrations & creating administrator account...');
+            showLoading('Running database migrations...', 30);
 
             const payload = new FormData();
             payload.append('action', 'create_admin');
@@ -395,15 +439,18 @@
 
             try {
                 // Run migrations first
+                updateProgress(60, 'Executing table migrations & seeders...');
                 const setupPayload = new FormData();
                 setupPayload.append('action', 'run_setup');
                 await fetch('installer-backend.php', { method: 'POST', body: setupPayload });
 
+                updateProgress(85, 'Creating Administrator account...');
                 // Create admin
                 const res = await fetch('installer-backend.php', { method: 'POST', body: payload });
                 const data = await res.json();
 
                 if (data.status === 'success') {
+                    updateProgress(100, 'Setup completed!');
                     const launchBtn = document.getElementById('launch-btn');
                     launchBtn.href = document.getElementById('app_url').value || 'http://localhost:8000';
                     goToStep(5);
@@ -413,7 +460,7 @@
             } catch (e) {
                 showAlert('Error creating administrator user.');
             } finally {
-                hideLoading();
+                setTimeout(hideLoading, 500);
             }
         }
 
