@@ -442,7 +442,8 @@
                 updateProgress(60, 'Executing table migrations & seeders...');
                 const setupPayload = new FormData();
                 setupPayload.append('action', 'run_setup');
-                await fetch('installer-backend.php', { method: 'POST', body: setupPayload });
+                const setupRes = await fetch('installer-backend.php', { method: 'POST', body: setupPayload });
+                const setupData = await setupRes.json();
 
                 updateProgress(85, 'Creating Administrator account...');
                 // Create admin
@@ -458,7 +459,7 @@
                     showAlert(data.message || 'Failed to create admin user.');
                 }
             } catch (e) {
-                showAlert('Error creating administrator user.');
+                showAlert('Error creating administrator user: ' + e.message);
             } finally {
                 setTimeout(hideLoading, 500);
             }
