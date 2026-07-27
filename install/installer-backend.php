@@ -21,8 +21,8 @@ function ensureStorageDirectories($targetDir) {
 
     $storageBase = $targetDir . '/storage';
 
-    // If 'storage' exists as a file or broken symlink instead of a directory, remove it!
-    if (file_exists($storageBase) && !is_dir($storageBase)) {
+    // Remove 'storage' if it exists as a symlink or file (is_link catches broken symlinks)
+    if (is_link($storageBase) || (file_exists($storageBase) && !is_dir($storageBase))) {
         @unlink($storageBase);
     }
 
