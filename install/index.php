@@ -284,13 +284,25 @@
             }
         }
 
+        async function fetchJsonSafe(url, options) {
+            const res = await fetch(url, options);
+            const text = await res.text();
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                console.error('Raw Server Response:', text);
+                // Strip HTML tags for clean alert box display
+                const cleanText = text.replace(/<[^>]*>?/gm, '').trim();
+                throw new Error(cleanText.substring(0, 150) || 'Server returned invalid response');
+            }
+        }
+
         // Run System Checks on Load
         async function runSystemChecks() {
             showLoading('Checking system requirements...', 20);
             try {
                 updateProgress(50, 'Evaluating PHP extensions & permissions...');
-                const res = await fetch('installer-backend.php?action=check_env');
-                const data = await res.json();
+                const data = await fetchJsonSafe('installer-backend.php?action=check_env');
                 
                 const list = document.getElementById('sys-check-list');
                 list.innerHTML = '';
@@ -316,7 +328,7 @@
                     showAlert('Some system requirements are missing. Please fix them before proceeding.');
                 }
             } catch (e) {
-                showAlert('Failed to connect to installer backend script.');
+                showAlert('Failed to connect to installer backend: ' + e.message);
             } finally {
                 setTimeout(hideLoading, 500);
             }
@@ -336,8 +348,7 @@
 
             try {
                 updateProgress(50, 'Verifying MySQL credentials...');
-                const res = await fetch('installer-backend.php', { method: 'POST', body: payload });
-                const data = await res.json();
+                const data = await fetchJsonSafe('installer-backend.php', { method: 'POST', body: payload });
 
                 if (data.status === 'success') {
                     updateProgress(75, 'Generating .env configuration file...');
@@ -345,8 +356,7 @@
                     payload.set('action', 'write_env');
                     payload.append('app_url', document.getElementById('app_url').value);
 
-                    const envRes = await fetch('installer-backend.php', { method: 'POST', body: payload });
-                    const envData = await envRes.json();
+                    const envData = await fetchJsonSafe('installer-backend.php', { method: 'POST', body: payload });
 
                     updateProgress(100, 'Database configured successfully!');
                     showAlert(envData.message || 'Database configured successfully!', true);
@@ -355,7 +365,7 @@
                     showAlert(data.message || 'Database connection failed.');
                 }
             } catch (e) {
-                showAlert('Network error during database test.');
+                showAlert('Database setup error: ' + e.message);
             } finally {
                 setTimeout(hideLoading, 500);
             }
@@ -398,7 +408,8 @@
             xhr.onload = function() {
                 updateProgress(80, 'Extracting files onto server disk...');
                 try {
-                    const data = JSON.parse(xhr.responseText);
+                    const text = xhr.responseText;
+                    const data = JSON.parse(text);
                     if (data.status === 'success') {
                         updateProgress(100, 'Extraction complete!');
                         logBox.innerText += '\nExtracted successfully! Proceeding to Admin Setup...';
@@ -442,13 +453,11 @@
                 updateProgress(60, 'Executing table migrations & seeders...');
                 const setupPayload = new FormData();
                 setupPayload.append('action', 'run_setup');
-                const setupRes = await fetch('installer-backend.php', { method: 'POST', body: setupPayload });
-                const setupData = await setupRes.json();
+                const setupData = await fetchJsonSafe('installer-backend.php', { method: 'POST', body: setupPayload });
 
                 updateProgress(85, 'Creating Administrator account...');
                 // Create admin
-                const res = await fetch('installer-backend.php', { method: 'POST', body: payload });
-                const data = await res.json();
+                const data = await fetchJsonSafe('installer-backend.php', { method: 'POST', body: payload });
 
                 if (data.status === 'success') {
                     updateProgress(100, 'Setup completed!');

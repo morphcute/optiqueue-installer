@@ -1,11 +1,17 @@
 <?php
-header('Content-Type: application/json');
+ob_start();
+error_reporting(0);
+ini_set('display_errors', '0');
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 // When installer lives in /install, target directory is parent folder (public_html / workspace)
 $targetDir = realpath(__DIR__ . '/..') ?: __DIR__;
 
 function sendJson($status, $data = []) {
+    if (ob_get_length()) {
+        ob_clean();
+    }
+    header('Content-Type: application/json');
     echo json_encode(array_merge(['status' => $status], $data));
     exit;
 }
