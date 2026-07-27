@@ -19,6 +19,13 @@ function sendJson($status, $data = []) {
 function ensureStorageDirectories($targetDir) {
     @umask(0);
 
+    $storageBase = $targetDir . '/storage';
+
+    // If 'storage' exists as a file or broken symlink instead of a directory, remove it!
+    if (file_exists($storageBase) && !is_dir($storageBase)) {
+        @unlink($storageBase);
+    }
+
     $dirs = [
         $targetDir . '/storage',
         $targetDir . '/storage/app',
