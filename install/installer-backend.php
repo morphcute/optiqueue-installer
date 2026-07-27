@@ -41,13 +41,16 @@ function ensureStorageDirectories($targetDir) {
         @file_put_contents($d . '/.gitkeep', '');
     }
 
-    // Fix permissions for all existing files in storage/framework/views/
+    // Wipe old compiled view files in storage/framework/views/ so Laravel creates fresh writable files
     $viewsDir = $targetDir . '/storage/framework/views';
     if (is_dir($viewsDir)) {
         $files = glob($viewsDir . '/*');
         if ($files) {
             foreach ($files as $f) {
-                @chmod($f, 0777);
+                if (is_file($f) && basename($f) !== '.gitkeep') {
+                    @chmod($f, 0777);
+                    @unlink($f);
+                }
             }
         }
     }
