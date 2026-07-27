@@ -16,6 +16,29 @@ function sendJson($status, $data = []) {
     exit;
 }
 
+function executeSqlFile($pdo, $sqlFilePath) {
+    if (!file_exists($sqlFilePath)) return false;
+    $sql = file_get_contents($sqlFilePath);
+    
+    // Temporarily disable foreign key checks for clean batch table creation
+    try { $pdo->exec("SET FOREIGN_KEY_CHECKS = 0;"); } catch (Throwable $e) {}
+
+    $queries = explode(";\n", $sql);
+    foreach ($queries as $q) {
+        $query = trim($q);
+        if (!empty($query)) {
+            try {
+                $pdo->exec($query);
+            } catch (Throwable $e) {
+                // Ignore minor duplicate table warnings
+            }
+        }
+    }
+
+    try { $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;"); } catch (Throwable $e) {}
+    return true;
+}
+
 function ensureStorageDirectories($targetDir) {
     @umask(0);
 
@@ -313,11 +336,24 @@ EOT;
             $user = trim($_POST['db_user'] ?? 'root');
             $pass = $_POST['db_pass'] ?? '';
 
-            // Run direct PDO schema migration to guarantee 100% table creation
+            // Run direct PDO schema migration from optiqueue_schema.sql if present
             try {
                 $pdo = new PDO("mysql:host={$host};port={$port};dbname={$dbName}", $user, $pass, [
                     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
                 ]);
+
+                $sqlPaths = [
+                    __DIR__ . '/optiqueue_schema.sql',
+                    $targetDir . '/database/optiqueue_schema.sql',
+                    $targetDir . '/optiqueue_schema.sql'
+                ];
+
+                foreach ($sqlPaths as $sqlFile) {
+                    if (file_exists($sqlFile)) {
+                        executeSqlFile($pdo, $sqlFile);
+                        break;
+                    }
+                }
 
                 $pdo->exec("CREATE TABLE IF NOT EXISTS `users` (
                   `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -491,6 +527,19 @@ EOT;
             $pdo = new PDO("mysql:host={$host};port={$port};dbname={$dbName}", $user, $pass, [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
             ]);
+
+            $sqlPaths = [
+                __DIR__ . '/optiqueue_schema.sql',
+                $targetDir . '/database/optiqueue_schema.sql',
+                $targetDir . '/optiqueue_schema.sql'
+            ];
+
+            foreach ($sqlPaths as $sqlFile) {
+                if (file_exists($sqlFile)) {
+                    executeSqlFile($pdo, $sqlFile);
+                    break;
+                }
+            }
 
             // Ensure essential core tables exist via PDO
             $pdo->exec("CREATE TABLE IF NOT EXISTS `users` (
