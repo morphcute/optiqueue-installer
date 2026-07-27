@@ -1,0 +1,210 @@
+<?php
+header('Content-Type: application/json');
+
+$action = $_POST['action'] ?? $_GET['action'] ?? '';
+$targetDir = realpath(__DIR__ . '/..');
+
+function sendJson($status, $data = []) {
+    echo json_encode(array_merge(['status' => $status], $data));
+    exit;
+}
+
+switch ($action) {
+    case 'check_env':
+        $phpVersion = PHP_VERSION;
+        $phpOk = version_compare($phpVersion, '8.1.0', '>=');
+        
+        $pdoOk = extension_loaded('pdo_mysql');
+        $zipOk = extension_loaded('zip');
+        $fileinfoOk = extension_loaded('fileinfo');
+        $opensslOk = extension_loaded('openssl');
+        $writableOk = is_writable($targetDir);
+
+        sendJson('success', [
+            'checks' => [
+                ['name' => 'PHP Version (>= 8.1)', 'pass' => $phpOk, 'value' => $phpVersion],
+                ['name' => 'PDO MySQL Extension', 'pass' => $pdoOk, 'value' => $pdoOk ? 'Enabled' : 'Missing'],
+                ['name' => 'ZIP Archive Extension', 'pass' => $zipOk, 'value' => $zipOk ? 'Enabled' : 'Missing'],
+                ['name' => 'OpenSSL Extension', 'pass' => $opensslOk, 'value' => $opensslOk ? 'Enabled' : 'Missing'],
+                ['name' => 'Target Directory Writable', 'pass' => $writableOk, 'value' => $writableOk ? 'Writable' : 'Read-Only'],
+            ],
+            'canProceed' => ($phpOk && $pdoOk && $zipOk && $writableOk)
+        ]);
+        break;
+
+    case 'test_db':
+        $host = $_POST['db_host'] ?? '127.0.0.1';
+        $port = $_POST['db_port'] ?? '3306';
+        $dbName = $_POST['db_name'] ?? 'optiqueue';
+        $user = $_POST['db_user'] ?? 'root';
+        $pass = $_POST['db_pass'] ?? '';
+
+        try {
+            // First connect without DB name to check host & create DB if missing
+            $pdo = new PDO("mysql:host={$host};port={$port}", $user, $pass, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
+            ]);
+
+            $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$dbName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
+            
+            // Reconnect directly to created DB
+            $pdoDb = new PDO("mysql:host={$host};port={$port};dbname={$dbName}", $user, $pass, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
+            ]);
+
+            sendJson('success', ['message' => "Successfully connected to database '{$dbName}'!"]);
+        } catch (Exception $e) {
+            sendJson('error', ['message' => 'Database connection failed: ' . $e->getMessage()]);
+        }
+        break;
+
+    case 'write_env':
+        $host = $_POST['db_host'] ?? '127.0.0.1';
+        $port = $_POST['db_port'] ?? '3306';
+        $dbName = $_POST['db_name'] ?? 'optiqueue';
+        $user = $_POST['db_user'] ?? 'root';
+        $pass = $_POST['db_pass'] ?? '';
+        $appUrl = $_POST['app_url'] ?? 'http://localhost:8000';
+
+        $appKey = 'base64:' . base64_encode(random_bytes(32));
+
+        $envContent = <<<EOT
+APP_NAME=OptiQueue
+APP_ENV=local
+APP_KEY={$appKey}
+APP_DEBUG=true
+APP_TIMEZONE=Asia/Manila
+APP_URL={$appUrl}
+
+LOG_CHANNEL=stack
+LOG_DEPRECATIONS_CHANNEL=null
+LOG_LEVEL=debug
+
+DB_CONNECTION=mysql
+DB_HOST={$host}
+DB_PORT={$port}
+DB_DATABASE={$dbName}
+DB_USERNAME={$user}
+DB_PASSWORD="{$pass}"
+
+BROADCAST_DRIVER=log
+CACHE_DRIVER=file
+FILESYSTEM_DISK=local
+QUEUE_CONNECTION=sync
+SESSION_DRIVER=file
+SESSION_LIFETIME=120
+EOT;
+
+        $targetEnvPath = $targetDir . '/.env';
+        if (file_put_contents($targetEnvPath, $envContent) !== false) {
+            sendJson('success', ['message' => '.env file generated successfully!']);
+        } else {
+            sendJson('error', ['message' => 'Failed to write .env file to ' . $targetEnvPath]);
+        }
+        break;
+
+    case 'extract_zip':
+        if (empty($_FILES['zip_file']['tmp_name'])) {
+            sendJson('error', ['message' => 'No ZIP file uploaded']);
+        }
+
+        $zipTmp = $_FILES['zip_file']['tmp_name'];
+        $zip = new ZipArchive();
+        
+        if ($zip->open($zipTmp) === true) {
+            $zip->extractTo($targetDir);
+            $zip->close();
+
+            // Automatically generate Hostinger/Apache root .htaccess for Laravel
+            $htaccessContent = <<<EOT
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^$ public/ [L]
+    RewriteRule (.*) public/$1 [L]
+</IfModule>
+EOT;
+            @file_put_contents($targetDir . '/.htaccess', $htaccessContent);
+
+            sendJson('success', ['message' => 'Project files successfully extracted! Root .htaccess configured for Hostinger.']);
+        } else {
+            sendJson('error', ['message' => 'Failed to open or extract ZIP file']);
+        }
+        break;
+
+    case 'run_setup':
+        // Try executing migrations via Artisan or Direct PHP Script
+        $phpPath = PHP_BINARY ? PHP_BINARY : 'php';
+        $artisanPath = $targetDir . '/artisan';
+
+        if (file_exists($artisanPath)) {
+            $cmd = "\"{$phpPath}\" \"{$artisanPath}\" migrate --force";
+            exec($cmd, $output, $returnCode);
+
+            $cmdSeed = "\"{$phpPath}\" \"{$artisanPath}\" db:seed --force";
+            exec($cmdSeed, $outputSeed, $returnCodeSeed);
+
+            sendJson('success', [
+                'message' => 'Database migrations and seeding completed!',
+                'log' => implode("\n", array_merge($output, $outputSeed))
+            ]);
+        } else {
+            sendJson('error', ['message' => 'artisan script not found in target directory']);
+        }
+        break;
+
+    case 'create_admin':
+        $name = trim($_POST['admin_name'] ?? 'Administrator');
+        $email = trim($_POST['admin_email'] ?? 'admin@optiqueue.online');
+        $password = $_POST['admin_password'] ?? 'admin123';
+
+        $host = $_POST['db_host'] ?? '127.0.0.1';
+        $port = $_POST['db_port'] ?? '3306';
+        $dbName = $_POST['db_name'] ?? 'optiqueue';
+        $user = $_POST['db_user'] ?? 'root';
+        $pass = $_POST['db_pass'] ?? '';
+
+        try {
+            $pdo = new PDO("mysql:host={$host};port={$port};dbname={$dbName}", $user, $pass, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
+            ]);
+
+            $hashedPassword = password_hash($password, PASSWORD_BCRYPT);
+            $now = date('Y-m-d H:i:s');
+
+            // Insert or Update Administrator user
+            $stmt = $pdo->prepare("INSERT INTO users (name, email, password, role, created_at, updated_at) 
+                VALUES (:name, :email, :password, 'Administrator', :created_at, :updated_at)
+                ON DUPLICATE KEY UPDATE name = :name2, password = :password2, role = 'Administrator', updated_at = :updated_at2");
+            
+            $stmt->execute([
+                ':name' => $name,
+                ':email' => $email,
+                ':password' => $hashedPassword,
+                ':created_at' => $now,
+                ':updated_at' => $now,
+                ':name2' => $name,
+                ':password2' => $hashedPassword,
+                ':updated_at2' => $now,
+            ]);
+
+            // Create installation lock file
+            @file_put_contents($targetDir . '/installed.lock', 'INSTALLED_ON_' . date('Y-m-d H:i:s'));
+
+            // Rename index.php to installer-done.php so Hostinger serves Laravel's public/index.php
+            if (file_exists(__DIR__ . '/index.php')) {
+                @rename(__DIR__ . '/index.php', __DIR__ . '/installer-done.php');
+            }
+
+            sendJson('success', [
+                'message' => 'Administrator account created & installation locked!',
+                'loginEmail' => $email
+            ]);
+        } catch (Exception $e) {
+            sendJson('error', ['message' => 'Failed to create admin user: ' . $e->getMessage()]);
+        }
+        break;
+
+    default:
+        sendJson('error', ['message' => 'Invalid action requested']);
+        break;
+}
