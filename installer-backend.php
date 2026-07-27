@@ -40,38 +40,45 @@ switch ($action) {
         break;
 
     case 'test_db':
-        $host = $_POST['db_host'] ?? '127.0.0.1';
-        $port = $_POST['db_port'] ?? '3306';
-        $dbName = $_POST['db_name'] ?? 'optiqueue';
-        $user = $_POST['db_user'] ?? 'root';
+        $host = trim($_POST['db_host'] ?? '127.0.0.1');
+        $port = trim($_POST['db_port'] ?? '3306');
+        $dbName = trim($_POST['db_name'] ?? 'optiqueue');
+        $user = trim($_POST['db_user'] ?? 'root');
         $pass = $_POST['db_pass'] ?? '';
 
+        // 1. Try connecting directly to pre-created DB (for shared hosting like AwardSpace, Hostinger, cPanel)
         try {
-            // First connect without DB name to check host & create DB if missing
-            $pdo = new PDO("mysql:host={$host};port={$port}", $user, $pass, [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
-            ]);
-
-            $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$dbName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
-            
-            // Reconnect directly to created DB
-            $pdoDb = new PDO("mysql:host={$host};port={$port};dbname={$dbName}", $user, $pass, [
+            $pdo = new PDO("mysql:host={$host};port={$port};dbname={$dbName}", $user, $pass, [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
             ]);
 
             sendJson('success', ['message' => "Successfully connected to database '{$dbName}'!"]);
-        } catch (Exception $e) {
-            sendJson('error', ['message' => 'Database connection failed: ' . $e->getMessage()]);
+        } catch (Exception $eDirect) {
+            // 2. Fallback: try creating DB if user has root/create privileges (for local XAMPP/Docker)
+            try {
+                $pdoRoot = new PDO("mysql:host={$host};port={$port}", $user, $pass, [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
+                ]);
+                $pdoRoot->exec("CREATE DATABASE IF NOT EXISTS `{$dbName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
+
+                $pdo = new PDO("mysql:host={$host};port={$port};dbname={$dbName}", $user, $pass, [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
+                ]);
+
+                sendJson('success', ['message' => "Database '{$dbName}' created & connected!"]);
+            } catch (Exception $eRoot) {
+                sendJson('error', ['message' => 'Database connection failed: ' . $eDirect->getMessage()]);
+            }
         }
         break;
 
     case 'write_env':
-        $host = $_POST['db_host'] ?? '127.0.0.1';
-        $port = $_POST['db_port'] ?? '3306';
-        $dbName = $_POST['db_name'] ?? 'optiqueue';
-        $user = $_POST['db_user'] ?? 'root';
+        $host = trim($_POST['db_host'] ?? '127.0.0.1');
+        $port = trim($_POST['db_port'] ?? '3306');
+        $dbName = trim($_POST['db_name'] ?? 'optiqueue');
+        $user = trim($_POST['db_user'] ?? 'root');
         $pass = $_POST['db_pass'] ?? '';
-        $appUrl = $_POST['app_url'] ?? 'http://localhost:8000';
+        $appUrl = trim($_POST['app_url'] ?? 'http://localhost:8000');
 
         $appKey = 'base64:' . base64_encode(random_bytes(32));
 
@@ -168,10 +175,10 @@ EOT;
         $email = trim($_POST['admin_email'] ?? 'admin@optiqueue.online');
         $password = $_POST['admin_password'] ?? 'admin123';
 
-        $host = $_POST['db_host'] ?? '127.0.0.1';
-        $port = $_POST['db_port'] ?? '3306';
-        $dbName = $_POST['db_name'] ?? 'optiqueue';
-        $user = $_POST['db_user'] ?? 'root';
+        $host = trim($_POST['db_host'] ?? '127.0.0.1');
+        $port = trim($_POST['db_port'] ?? '3306');
+        $dbName = trim($_POST['db_name'] ?? 'optiqueue');
+        $user = trim($_POST['db_user'] ?? 'root');
         $pass = $_POST['db_pass'] ?? '';
 
         try {
