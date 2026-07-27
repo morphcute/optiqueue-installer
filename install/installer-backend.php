@@ -311,11 +311,20 @@ EOT;
             $bootstrapPath = $targetDir . '/bootstrap/app.php';
 
             if (file_exists($autoloadPath) && file_exists($bootstrapPath)) {
-                // Execute Artisan migrations natively in PHP without needing shell exec()
                 require_once $autoloadPath;
-                $app = require_once $bootstrapPath;
+
+                // Define console constants so Laravel bootstraps in pure Console mode
+                if (!defined('STDIN')) define('STDIN', fopen('php://stdin', 'r'));
+                if (!defined('STDOUT')) define('STDOUT', fopen('php://stdout', 'w'));
+                if (!defined('STDERR')) define('STDERR', fopen('php://stderr', 'w'));
+
+                $app = require $bootstrapPath;
 
                 $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+                if (method_exists($kernel, 'bootstrap')) {
+                    $kernel->bootstrap();
+                }
+
                 @$kernel->call('migrate', ['--force' => true]);
                 @$kernel->call('db:seed', ['--force' => true]);
 
@@ -335,7 +344,6 @@ EOT;
                 sendJson('success', ['message' => 'Setup initialization completed!']);
             }
         } catch (Throwable $e) {
-            // Return clean JSON error instead of 500
             sendJson('error', ['message' => 'Migration notice: ' . $e->getMessage()]);
         }
         break;
@@ -355,6 +363,46 @@ EOT;
             $pdo = new PDO("mysql:host={$host};port={$port};dbname={$dbName}", $user, $pass, [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
             ]);
+
+            // Guarantee essential core tables exist via PDO fallback if migrations were bypassed
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `users` (
+              `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+              `name` varchar(255) NOT NULL,
+              `email` varchar(255) NOT NULL,
+              `email_verified_at` timestamp NULL DEFAULT NULL,
+              `password` varchar(255) NOT NULL,
+              `role` varchar(50) NOT NULL DEFAULT 'User',
+              `remember_token` varchar(100) DEFAULT NULL,
+              `created_at` timestamp NULL DEFAULT NULL,
+              `updated_at` timestamp NULL DEFAULT NULL,
+              PRIMARY KEY (`id`),
+              UNIQUE KEY `users_email_unique` (`email`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `login_settings` (
+              `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+              `settings` json DEFAULT NULL,
+              `created_at` timestamp NULL DEFAULT NULL,
+              `updated_at` timestamp NULL DEFAULT NULL,
+              PRIMARY KEY (`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+            $pdo->exec("INSERT IGNORE INTO `login_settings` (`id`, `settings`, `created_at`, `updated_at`) VALUES (1, '{}', NOW(), NOW());");
+
+            // Execute Laravel Artisan migrations if available
+            $autoloadPath = $targetDir . '/vendor/autoload.php';
+            $bootstrapPath = $targetDir . '/bootstrap/app.php';
+            if (file_exists($autoloadPath) && file_exists($bootstrapPath)) {
+                try {
+                    require_once $autoloadPath;
+                    $app = require $bootstrapPath;
+                    $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+                    @$kernel->call('migrate', ['--force' => true]);
+                    @$kernel->call('db:seed', ['--force' => true]);
+                } catch (Throwable $e) {
+                    // Ignore migration warnings if tables already exist
+                }
+            }
 
             $hashedPassword = password_hash($password, PASSWORD_BCRYPT);
             $now = date('Y-m-d H:i:s');
