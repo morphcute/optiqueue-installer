@@ -10,6 +10,29 @@ function sendJson($status, $data = []) {
     exit;
 }
 
+function ensureStorageDirectories($targetDir) {
+    $dirs = [
+        $targetDir . '/storage',
+        $targetDir . '/storage/app',
+        $targetDir . '/storage/app/public',
+        $targetDir . '/storage/framework',
+        $targetDir . '/storage/framework/cache',
+        $targetDir . '/storage/framework/cache/data',
+        $targetDir . '/storage/framework/sessions',
+        $targetDir . '/storage/framework/testing',
+        $targetDir . '/storage/framework/views',
+        $targetDir . '/storage/logs',
+        $targetDir . '/bootstrap/cache',
+    ];
+
+    foreach ($dirs as $d) {
+        if (!is_dir($d)) {
+            @mkdir($d, 0777, true);
+        }
+        @chmod($d, 0777);
+    }
+}
+
 switch ($action) {
     case 'check_env':
         $phpVersion = PHP_VERSION;
@@ -210,6 +233,9 @@ EOT;
             $zip->close();
 
             if ($successCount > 0) {
+                // Ensure all required Laravel storage directories exist and are writable
+                ensureStorageDirectories($targetDir);
+
                 // Automatically generate Hostinger/Apache root .htaccess for Laravel
                 $htaccessContent = <<<EOT
 <IfModule mod_rewrite.c>
@@ -237,6 +263,9 @@ EOT;
 
     case 'run_setup':
         try {
+            // Ensure all required Laravel storage directories exist and are writable
+            ensureStorageDirectories($targetDir);
+
             $autoloadPath = $targetDir . '/vendor/autoload.php';
             $bootstrapPath = $targetDir . '/bootstrap/app.php';
 
