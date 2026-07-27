@@ -169,10 +169,47 @@ EOT;
 
         $zip = new ZipArchive();
         if ($zip->open($zipFilePath) === true) {
-            $extracted = @$zip->extractTo($targetDir);
+            $successCount = 0;
+            $failCount = 0;
+
+            for ($i = 0; $i < $zip->numFiles; $i++) {
+                $filename = $zip->getNameIndex($i);
+                
+                // Skip overwriting running installer directory
+                if (str_starts_with($filename, 'install/')) {
+                    continue;
+                }
+
+                $targetPath = $targetDir . '/' . ltrim($filename, '/');
+
+                if (str_ends_with($filename, '/')) {
+                    if (!is_dir($targetPath)) {
+                        @mkdir($targetPath, 0755, true);
+                    }
+                } else {
+                    $dirName = dirname($targetPath);
+                    if (!is_dir($dirName)) {
+                        @mkdir($dirName, 0755, true);
+                    }
+
+                    $stream = $zip->getStream($filename);
+                    if ($stream) {
+                        $contents = stream_get_contents($stream);
+                        fclose($stream);
+
+                        if (@file_put_contents($targetPath, $contents) !== false) {
+                            $successCount++;
+                        } else {
+                            $failCount++;
+                        }
+                    } else {
+                        $failCount++;
+                    }
+                }
+            }
             $zip->close();
 
-            if ($extracted) {
+            if ($successCount > 0) {
                 // Automatically generate Hostinger/Apache root .htaccess for Laravel
                 $htaccessContent = <<<EOT
 <IfModule mod_rewrite.c>
@@ -183,9 +220,15 @@ EOT;
 EOT;
                 @file_put_contents($targetDir . '/.htaccess', $htaccessContent);
 
-                sendJson('success', ['message' => 'Project files successfully extracted! Root .htaccess configured.']);
+                sendJson('success', [
+                    'message' => "Successfully extracted {$successCount} project files to server!",
+                    'filesExtracted' => $successCount,
+                    'filesFailed' => $failCount
+                ]);
             } else {
-                sendJson('error', ['message' => 'Cannot extract ZIP. Target directory is not writable by PHP.']);
+                sendJson('error', [
+                    'message' => "Cannot extract ZIP files to '{$targetDir}'. Please check folder permissions (0755/0777)."
+                ]);
             }
         } else {
             sendJson('error', ['message' => 'Failed to open or invalid ZIP package.']);
