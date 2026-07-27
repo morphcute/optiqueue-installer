@@ -36,6 +36,7 @@ function ensureStorageDirectories($targetDir) {
             @mkdir($d, 0777, true);
         }
         @chmod($d, 0777);
+        @file_put_contents($d . '/.gitkeep', '');
     }
 }
 
@@ -103,6 +104,8 @@ switch ($action) {
         break;
 
     case 'write_env':
+        ensureStorageDirectories($targetDir);
+
         $host = trim($_POST['db_host'] ?? '127.0.0.1');
         $port = trim($_POST['db_port'] ?? '3306');
         $dbName = trim($_POST['db_name'] ?? 'optiqueue');
@@ -111,6 +114,7 @@ switch ($action) {
         $appUrl = trim($_POST['app_url'] ?? 'http://localhost:8000');
 
         $appKey = 'base64:' . base64_encode(random_bytes(32));
+        $viewsPath = str_replace('\\', '/', $targetDir . '/storage/framework/views');
 
         $envContent = <<<EOT
 APP_NAME=OptiQueue
@@ -119,6 +123,8 @@ APP_KEY={$appKey}
 APP_DEBUG=true
 APP_TIMEZONE=Asia/Manila
 APP_URL={$appUrl}
+
+VIEW_COMPILED_PATH={$viewsPath}
 
 LOG_CHANNEL=stack
 LOG_DEPRECATIONS_CHANNEL=null
