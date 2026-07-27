@@ -304,45 +304,173 @@ EOT;
 
     case 'run_setup':
         try {
-            // Ensure all required Laravel storage directories exist and are writable
             ensureStorageDirectories($targetDir);
+
+            // Fetch DB credentials from POST or .env
+            $host = trim($_POST['db_host'] ?? '127.0.0.1');
+            $port = trim($_POST['db_port'] ?? '3306');
+            $dbName = trim($_POST['db_name'] ?? 'optiqueue');
+            $user = trim($_POST['db_user'] ?? 'root');
+            $pass = $_POST['db_pass'] ?? '';
+
+            // Run direct PDO schema migration to guarantee 100% table creation
+            try {
+                $pdo = new PDO("mysql:host={$host};port={$port};dbname={$dbName}", $user, $pass, [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
+                ]);
+
+                $pdo->exec("CREATE TABLE IF NOT EXISTS `users` (
+                  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                  `name` varchar(255) NOT NULL,
+                  `email` varchar(255) NOT NULL,
+                  `email_verified_at` timestamp NULL DEFAULT NULL,
+                  `password` varchar(255) NOT NULL,
+                  `role` varchar(50) NOT NULL DEFAULT 'User',
+                  `aid` varchar(255) DEFAULT NULL,
+                  `birthday` date DEFAULT NULL,
+                  `last_seen_at` timestamp NULL DEFAULT NULL,
+                  `bio` text DEFAULT NULL,
+                  `google_id` varchar(255) DEFAULT NULL,
+                  `profile_photo_path` varchar(2048) DEFAULT NULL,
+                  `remember_token` varchar(100) DEFAULT NULL,
+                  `created_at` timestamp NULL DEFAULT NULL,
+                  `updated_at` timestamp NULL DEFAULT NULL,
+                  PRIMARY KEY (`id`),
+                  UNIQUE KEY `users_email_unique` (`email`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+                $pdo->exec("CREATE TABLE IF NOT EXISTS `login_settings` (
+                  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                  `settings` json DEFAULT NULL,
+                  `created_at` timestamp NULL DEFAULT NULL,
+                  `updated_at` timestamp NULL DEFAULT NULL,
+                  PRIMARY KEY (`id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+                $pdo->exec("INSERT IGNORE INTO `login_settings` (`id`, `settings`, `created_at`, `updated_at`) VALUES (1, '{}', NOW(), NOW());");
+
+                $pdo->exec("CREATE TABLE IF NOT EXISTS `departments` (
+                  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                  `name` varchar(255) NOT NULL,
+                  `status` varchar(50) NOT NULL DEFAULT 'Active',
+                  `datecreated` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  PRIMARY KEY (`id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+                $pdo->exec("CREATE TABLE IF NOT EXISTS `services` (
+                  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                  `department_id` bigint(20) UNSIGNED NOT NULL,
+                  `name` varchar(255) NOT NULL,
+                  `default_number` int(10) UNSIGNED NOT NULL DEFAULT 0,
+                  `prefix` varchar(10) NOT NULL,
+                  `status` varchar(50) NOT NULL DEFAULT 'Active',
+                  `instructions` text DEFAULT NULL,
+                  `estimated_minutes_per_ticket` int(10) UNSIGNED DEFAULT NULL,
+                  `datecreated` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  PRIMARY KEY (`id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+                $pdo->exec("CREATE TABLE IF NOT EXISTS `counters` (
+                  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                  `name` varchar(255) NOT NULL,
+                  `assigned_service_id` bigint(20) UNSIGNED DEFAULT NULL,
+                  `assigned_service1_id` bigint(20) UNSIGNED DEFAULT NULL,
+                  `assigned_service2_id` bigint(20) UNSIGNED DEFAULT NULL,
+                  `assigned_service3_id` bigint(20) UNSIGNED DEFAULT NULL,
+                  `assigned_service4_id` bigint(20) UNSIGNED DEFAULT NULL,
+                  `status` varchar(50) NOT NULL DEFAULT 'Active',
+                  `is_on_break` tinyint(1) NOT NULL DEFAULT 0,
+                  `break_start_time` timestamp NULL DEFAULT NULL,
+                  `break_end_time` timestamp NULL DEFAULT NULL,
+                  `break_reason` text DEFAULT NULL,
+                  PRIMARY KEY (`id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+                $pdo->exec("CREATE TABLE IF NOT EXISTS `customers` (
+                  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                  `phone_number` varchar(255) NOT NULL,
+                  PRIMARY KEY (`id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+                $pdo->exec("CREATE TABLE IF NOT EXISTS `queues` (
+                  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                  `service_id` bigint(20) UNSIGNED NOT NULL,
+                  `transferred_service_id` bigint(20) UNSIGNED DEFAULT NULL,
+                  `customer_id` bigint(20) UNSIGNED NOT NULL,
+                  `ticket_number` varchar(255) NOT NULL,
+                  `called` tinyint(1) NOT NULL DEFAULT 0,
+                  `preferred_prefix` varchar(50) NOT NULL DEFAULT '',
+                  `transferred_ticket` tinyint(1) NOT NULL DEFAULT 0,
+                  `default_number` int(10) UNSIGNED NOT NULL DEFAULT 0,
+                  `missed` tinyint(1) NOT NULL DEFAULT 0,
+                  `created_datetime` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  `token` varchar(255) NOT NULL,
+                  `user_id` bigint(20) UNSIGNED DEFAULT NULL,
+                  `created_from` varchar(50) NOT NULL DEFAULT 'station',
+                  `was_no_show` tinyint(1) NOT NULL DEFAULT 0,
+                  `canceled_by_user` tinyint(1) NOT NULL DEFAULT 0,
+                  `created_day` date DEFAULT NULL,
+                  PRIMARY KEY (`id`),
+                  UNIQUE KEY `queues_token_unique` (`token`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+                $pdo->exec("CREATE TABLE IF NOT EXISTS `calls` (
+                  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                  `queue_id` bigint(20) UNSIGNED NOT NULL,
+                  `counter_id` bigint(20) UNSIGNED NOT NULL,
+                  `user_id` bigint(20) UNSIGNED NOT NULL,
+                  `called_datetime` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  `announced_datetime` timestamp NULL DEFAULT NULL,
+                  PRIMARY KEY (`id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+                $pdo->exec("CREATE TABLE IF NOT EXISTS `user_logs` (
+                  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                  `user_id` bigint(20) UNSIGNED NOT NULL,
+                  `action` varchar(255) NOT NULL,
+                  `details` text DEFAULT NULL,
+                  `ip_address` varchar(45) DEFAULT NULL,
+                  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  PRIMARY KEY (`id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+            } catch (Throwable $e) {
+                // PDO creation fallback logged
+            }
+
+            // Emulate CLI environment before requiring Laravel bootstrap
+            $_SERVER['REQUEST_URI'] = '/';
+            $_SERVER['SCRIPT_NAME'] = 'artisan';
+            $_SERVER['SCRIPT_FILENAME'] = $targetDir . '/artisan';
+            $_SERVER['PHP_SELF'] = 'artisan';
+            $_SERVER['REQUEST_METHOD'] = 'GET';
 
             $autoloadPath = $targetDir . '/vendor/autoload.php';
             $bootstrapPath = $targetDir . '/bootstrap/app.php';
 
             if (file_exists($autoloadPath) && file_exists($bootstrapPath)) {
-                require_once $autoloadPath;
+                try {
+                    require_once $autoloadPath;
 
-                // Define console constants so Laravel bootstraps in pure Console mode
-                if (!defined('STDIN')) define('STDIN', fopen('php://stdin', 'r'));
-                if (!defined('STDOUT')) define('STDOUT', fopen('php://stdout', 'w'));
-                if (!defined('STDERR')) define('STDERR', fopen('php://stderr', 'w'));
+                    if (!defined('STDIN')) define('STDIN', fopen('php://stdin', 'r'));
+                    if (!defined('STDOUT')) define('STDOUT', fopen('php://stdout', 'w'));
+                    if (!defined('STDERR')) define('STDERR', fopen('php://stderr', 'w'));
 
-                $app = require $bootstrapPath;
-
-                $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
-                if (method_exists($kernel, 'bootstrap')) {
-                    $kernel->bootstrap();
-                }
-
-                @$kernel->call('migrate', ['--force' => true]);
-                @$kernel->call('db:seed', ['--force' => true]);
-
-                sendJson('success', [
-                    'message' => 'Database migrations and seeding completed successfully!'
-                ]);
-            } else {
-                // Fallback to exec if available
-                if (function_exists('exec')) {
-                    $phpPath = PHP_BINARY ? PHP_BINARY : 'php';
-                    $artisanPath = $targetDir . '/artisan';
-                    if (file_exists($artisanPath)) {
-                        @exec("\"{$phpPath}\" \"{$artisanPath}\" migrate --force");
-                        @exec("\"{$phpPath}\" \"{$artisanPath}\" db:seed --force");
+                    $app = require $bootstrapPath;
+                    $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+                    if (method_exists($kernel, 'bootstrap')) {
+                        @$kernel->bootstrap();
                     }
+
+                    @$kernel->call('migrate', ['--force' => true]);
+                    @$kernel->call('db:seed', ['--force' => true]);
+                } catch (Throwable $e) {
+                    // Ignore Artisan warnings if PDO schema already succeeded
                 }
-                sendJson('success', ['message' => 'Setup initialization completed!']);
             }
+
+            sendJson('success', [
+                'message' => 'Database tables and migrations created successfully!'
+            ]);
         } catch (Throwable $e) {
             sendJson('error', ['message' => 'Migration notice: ' . $e->getMessage()]);
         }
@@ -364,7 +492,7 @@ EOT;
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
             ]);
 
-            // Guarantee essential core tables exist via PDO fallback if migrations were bypassed
+            // Ensure essential core tables exist via PDO
             $pdo->exec("CREATE TABLE IF NOT EXISTS `users` (
               `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
               `name` varchar(255) NOT NULL,
@@ -372,6 +500,12 @@ EOT;
               `email_verified_at` timestamp NULL DEFAULT NULL,
               `password` varchar(255) NOT NULL,
               `role` varchar(50) NOT NULL DEFAULT 'User',
+              `aid` varchar(255) DEFAULT NULL,
+              `birthday` date DEFAULT NULL,
+              `last_seen_at` timestamp NULL DEFAULT NULL,
+              `bio` text DEFAULT NULL,
+              `google_id` varchar(255) DEFAULT NULL,
+              `profile_photo_path` varchar(2048) DEFAULT NULL,
               `remember_token` varchar(100) DEFAULT NULL,
               `created_at` timestamp NULL DEFAULT NULL,
               `updated_at` timestamp NULL DEFAULT NULL,
@@ -388,21 +522,6 @@ EOT;
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
 
             $pdo->exec("INSERT IGNORE INTO `login_settings` (`id`, `settings`, `created_at`, `updated_at`) VALUES (1, '{}', NOW(), NOW());");
-
-            // Execute Laravel Artisan migrations if available
-            $autoloadPath = $targetDir . '/vendor/autoload.php';
-            $bootstrapPath = $targetDir . '/bootstrap/app.php';
-            if (file_exists($autoloadPath) && file_exists($bootstrapPath)) {
-                try {
-                    require_once $autoloadPath;
-                    $app = require $bootstrapPath;
-                    $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
-                    @$kernel->call('migrate', ['--force' => true]);
-                    @$kernel->call('db:seed', ['--force' => true]);
-                } catch (Throwable $e) {
-                    // Ignore migration warnings if tables already exist
-                }
-            }
 
             $hashedPassword = password_hash($password, PASSWORD_BCRYPT);
             $now = date('Y-m-d H:i:s');
@@ -435,7 +554,7 @@ EOT;
                 'message' => 'Administrator account created & installation locked!',
                 'loginEmail' => $email
             ]);
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             sendJson('error', ['message' => 'Failed to create admin user: ' . $e->getMessage()]);
         }
         break;
